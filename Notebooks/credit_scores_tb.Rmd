@@ -1,0 +1,612 @@
+---
+title: "Caret minimal example - Kaggle Give me some credit"
+author: |
+  | Thomas Bury
+  | Data Office - Advanced Analytics
+  | Allianz
+date: '`r Sys.Date()`'
+output:
+  html_document:
+    theme: cosmo
+    highlight: tango
+    number_sections: true
+    toc: true
+    df_print: paged
+---
+
+<img src="D:/Users/EUDZ040/R/002_Zoning/notebook/allianz_logo.jpg" style="position:absolute;top:0px;right:0px;" width="175px" align="right" />
+
+
+
+```{r setup, include=FALSE}
+# Fonts and style
+library(knitr)
+library(pander)
+library(xtable)
+
+# Stat
+library(glmnet)
+library(GPfit)
+library(Hmisc)
+library(mice)
+library(missMDA)
+library(moments)
+library(normtest)
+library(ppcor)
+library(pscl)
+library(quantreg)
+library(Rmisc)
+library(statmod)
+library(summarytools)
+
+# Plot
+library(corrplot)
+library(factoextra)
+library(ggplot2)
+library(ggthemes)
+library(gridExtra)
+library(igraph)
+library(RColorBrewer)
+library(scales)
+library(VIM)
+library(viridis)
+library(wesanderson)
+
+# Machine learning
+library(caret)
+library(dendextend)
+library(FactoMineR)
+library(gbm)
+library(klaR)
+library(pROC)
+library(randomForest)
+
+# Data manipulation
+library(data.table)
+library(dplyr)
+library(lubridate)
+library(plyr)
+library(reshape2)
+library(tidyr)
+
+# CPU parallelization
+library(doParallel)
+library(parallel)
+
+# Linear algebra
+library(expm)
+
+# Optimization
+library(nloptr)
+library(optimx)
+
+# Data load
+library(readr)
+
+# Utilisties
+library(rmutil)
+
+# Text
+library(stringr)
+
+
+nbr_cores <- detectCores()
+cl <- makeCluster(round(nbr_cores/2)) # use half of available CPUs
+```
+
+
+
+<!-- ####################################### -->
+<!-- ####################################### -->
+<!-- ####################################### -->
+<!-- ######                           ###### -->
+<!-- ######  Here begins the document ###### -->
+<!-- ######                           ###### -->
+<!-- ####################################### -->
+<!-- ####################################### -->
+<!-- ####################################### -->
+
+
+
+# Introduction
+
+Let's play a bit by predicting the probability that somebody will experience financial distress in the next two years. First, I will evaluate if the problem is "big enough to matter" and if companies offering credit services should invest in a solution and to what extend.
+
+
+Concerning the methodology, the common cycle is 
+
+ - define the task, the mean and deadline
+ - data preparation
+ - explore the data
+ - data transformation (ETL cycle)
+ - build models
+ - validate/test the models
+ - interpret (if possible)
+ - deploy the survivor
+ - iterate the cycle
+ 
+The goal is to save money by correctly classifying Customers who bear a risk of financial distress. The data are already extracted. The output should be a probability to experience a financial distress in the next two years. As such I guess that two years is a sensible business horizon.
+
+So analytically, the task is to set up a good binary classifier to tag (risky/healthy) Customers for credit risk handling (cancel credit lines, decrease limits, screening, etc).
+ 
+I will use the Customers features to predict if they were risky or healthy. I will split this training set into a sub-training and sub-test sets to make sure that I'm not just overfit a given set (meaning that the model *does* have a predictive power and performs better than the random guessing).
+
+During the model selection, don't forget the bias-variance trade-off but also the running time and eventually the scalability if working with "big data".
+
+For development purpose, there are 3 main switches to consider : performance, how fast we can deliver, price. At most *two* of those can be turned "on" simultaneously (fast and cheap means poor perf, fast and good means expensive, etc.)
+
+# Why should we care ? Data exploration
+
+Because it may save money, but how much ? Is it worth to put some effort for the best achievable solution ? 
+
+```{r, echo = TRUE, include = TRUE, warning=FALSE}
+### Load the data, dropping the row number ###
+
+data_path <- "D:/Users/EUDZ040/R/004_caret_example/Data/cs-training.csv"
+try(my_data <- fread(data_path, header = TRUE, drop = 1))
+my_data <- my_data[, SeriousDlqin2yrs := as.factor(SeriousDlqin2yrs)]
+
+# if the colnames are necessary
+col_names <- str_replace_all(colnames(my_data), "-", "")
+colnames(my_data) <- col_names
+
+# let's rename the features for 1) solve issue with encodind 2) avoid "self over-interpretation"
+new_names <- c("target", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10")
+colnames(my_data) <- new_names
+# set levels names 
+lev <- c("Good", "Bad")
+setattr(my_data$target, "levels", lev) # data.table way
+# mapping table
+map_tab <- cbind(col_names, new_names)
+pander(map_tab)
+```
+
+
+
+
+
+## Missing values
+
+<!--  ##### Let's load the data ##### -->
+```{r, echo = TRUE, include = TRUE}
+# nice display
+pander(summary(my_data) )
+```
+
+Are there many missing values ? Let's use the VIM package to simply plot the proportion of missing values by feature and if so are there combination of variables which are frequently conjointly missing.
+
+
+```{r, echo = TRUE, include = TRUE}
+aggr(my_data, numbers = T,  prop=c(TRUE,FALSE))
+```
+
+
+
+Sadly the original variable names are too long for the margin  (I wont rename the variable for this exercise, I just keep the number. It also allows to avoid any "a priori" human bias). However we can see that "MonthlyIncome" is largely missing but often alone (only 3924 observations where MonthlyIncome is conjointly missing with NumberOfDependents). 
+
+
+For models training purpose, let's split the dependent variable (aka the target) and the predictors (aka features) as
+
+```{r, echo = TRUE, include = TRUE}
+dt_feat   <- my_data[ , -1]
+dt_target <- my_data[ , 1]
+```
+
+
+
+
+We can try to impute the missing values using the MICE package (Multivariate Imputation by Chained Equations) ** I skip this part because it takes too much time, I'll do a simple imputation replacing NA by median for monthly income grouping by delinquency **.
+
+```{r, echo = TRUE, include = TRUE}
+# impute monthly income
+# my_data <- my_data[ , `:=`(x5, replace(x5, is.na(x5), as.integer(round(median(x5, na.rm=TRUE)) ) )), by=.(target)]
+
+my_data <- my_data[ , `:=`(x5, replace(x5, is.na(x5), 0L) ), by=.(target)] # avoid weird total amount
+# impute number of dependents
+my_data <- my_data[ , `:=`(x10, replace(x10, is.na(x10), as.integer(round(median(x10, na.rm=TRUE)) ) )), by=.(target)]
+```
+
+Is the target values well balanced ?
+
+```{r, echo = TRUE, include = TRUE, warning=FALSE, fig.height = 3}
+ggplot(dt_target, aes(target)) +
+  geom_histogram(stat = "count") + theme_classic() + theme_fivethirtyeight() 
+```
+
+The negative instances are dominant (hopefully), so oversampling/weighting/etc might be necessary. 
+
+
+```{r, echo = TRUE, include = TRUE}
+pander(prop.table(table(dt_target)))
+```
+
+
+## Potential money loss
+
+An important business question is: what amount of money could be saved using risk mitigation ? Hereafter I compute the amount that could be lost if the Individuals in financial distress go bankrupt.
+
+```{r, echo = TRUE, include = TRUE, warning=FALSE, fig.height= 3}
+moneyLoss <- as.data.table(my_data$x4*my_data$x5*(as.integer(my_data$target)-1) )
+colnames(moneyLoss) <- c("loss")
+
+p1 <- ggplot(moneyLoss[loss != 0], aes(x = loss)) +
+   geom_histogram(bins = 50)  + theme_classic() +
+  scale_y_log10(labels = trans_format("log10", math_format(10^.x)),
+                limits = c(1e0,1e4),breaks = trans_breaks("log10", function(x) 10^x, n = 5)) + 
+  scale_x_log10(labels = trans_format("log10", math_format(10^.x)),
+                limits = c(1e0,1e5),breaks = trans_breaks("log10", function(x) 10^x, n = 6)) +
+  xlab("Amount [eur]") + theme_fivethirtyeight() 
+
+p1
+```
+
+
+The money loss distribution is quite broad. The median amount which could be lost is `r round(median(moneyLoss[loss != 0, loss]))` eur and the total amount which could be lost by the involved financial institution is `r sum(moneyLoss[loss != 0, loss])` eur, which means a potential loss of `r round(sum(moneyLoss[loss != 0, loss])/150000)` eur by Customer. An accurate prediction is therefore essential. Correctly predicting $75\%$ cases would mean save `r round(sum(moneyLoss[loss != 0, loss])*0.75 )` eur. An increase of $1\%$ of the prediction accuracy would mean a saving of `r round(sum(moneyLoss[loss != 0, loss])*0.01 )` eur. Those amounts should be understood on a 2 years window.
+
+
+
+
+
+## Correlation structure
+
+Too much correlated predictors may also affect the prediction performance, as a simplistic check let's visualize the correlation matrix
+
+```{r, echo = TRUE, include = TRUE, fig.height = 5}
+obs <- complete.cases(dt_feat)
+M  <- cor(dt_feat[obs, lapply(.SD, scale)], method = "spearman")
+corrplot.mixed(M, lower.col=viridis(n = 128),upper.col=viridis(n = 128) )
+```
+
+Some variables are significantly correlated. Therefore, a possible dimension reduction might be convenient. Let's check if PCA can be relevant
+
+
+
+```{r, echo = TRUE, include = TRUE, warning=FALSE, fig.height = 4}
+pca <- PCA(dt_feat, graph = FALSE)
+fviz_eig(pca, addlabels = TRUE, ylim = c(0, 35)) 
+```
+
+
+
+```{r, echo = TRUE, include = TRUE, warning=FALSE, fig.height = 4}
+eig_val <- get_eigenvalue(pca)
+pander(eig_val)
+```
+
+
+Only the two last dimensions have a small contribution to the variance, so a dimension reduction might not be relevant (5, 8 or 10 dimensions is quite similar). I will come back later on features selection.
+
+
+
+
+```{r, echo = TRUE, include = TRUE, warning=FALSE, fig.height = 3}
+var <- get_pca_var(pca)
+# Contributions to the principal components
+fviz_contrib(pca, choice = "var", axes = 1, top = 5)
+```
+
+The first dimension explains $30\%$ of the variance and the most relevant variables for this dimension are x3, X7 and x9. It corresponds to the *concept* late payments (pretty intuitive result).
+
+```{r, echo = TRUE, include = TRUE, warning=FALSE, fig.height = 3}
+var <- get_pca_var(pca)
+# Contributions to the principal components
+fviz_contrib(pca, choice = "var", axes = 2, top = 5)
+```
+
+The second *concept* is the number of open lines.
+
+```{r, echo = TRUE, include = TRUE, warning=FALSE, fig.height = 3}
+var <- get_pca_var(pca)
+# Contributions to the principal components
+fviz_contrib(pca, choice = "var", axes = 3, top = 5)
+```
+
+
+The third *concept* is socio-demographics (age and number of dependent), etc. This is pretty interesting to extract main meanings of independent dimension and to look for other predictor for a further iteration of the modelling process (is there a more significant feature corresponding to those *concepts* ? -> business insights/expertise).
+
+## Distribution
+
+Often in theoretical development, the normality of unbounded numerical variables is assumed to simplify the mathematical treatment (and sometimes it's even the only way to have an analytical solution). However, in real world data, this assumption is often not met (as when any "money" related variable enters).
+
+Let's melt the data to use ggplot2 and boxplot the data to visualize the outliers
+
+```{r, echo = TRUE, include = TRUE, warning=FALSE}
+dt_feat_long <- melt(dt_feat)
+```
+
+
+I'll use a log-scale to visualize the large ranges of variation, zero values will therefore not be taken into account:
+
+```{r, echo = TRUE, include = TRUE, warning=FALSE, fig.width=8}
+p <- ggplot(dt_feat_long, aes(x = variable, y = value)) + 
+  geom_boxplot(fill="gray") +
+  labs(title = "Boxplot of features (zero not shown)", x = "variable name", y = "distribution") +
+  scale_y_log10(labels = trans_format("log10", math_format(10^.x)),limits = c(1e-3,1e6),breaks = trans_breaks("log10", function(x) 10^x, n = 10)) +
+  theme_fivethirtyeight()  + coord_flip() 
+
+p
+```
+
+
+There are many outliers in almost every feature. At this stage, I'll not consider an outliers-filtering. This can affect the "structure" (correlations, etc) and the models performance. 
+
+
+
+# models
+
+This is a binary classification problem based on a set of 10 features. As the sample size is much larger than the number of features which is relatively small, the dimensionality curse is not something to be afraid of for the moment.
+
+For binary classification, there are a bunch a statistical method including (not exhaustive): logistic regression, binary tree, random forest, gradient boost machine, and more. As usual, the bias-variance trade-off is to be considered. The simpler the model, the more consistent (low variance) to variations of the data set but the larger the bias and vice-versa. For significantly non-linear relation, we can for instance, else linearise the problem (taking the log helps) or consider a non-linear model (but at the cost of a larger variance).
+
+First, we split the training sample into a sub-train and sub-test for optimization purpose:
+
+```{r, echo=TRUE, include=FALSE}
+mySummary <- function(data, lev = NULL, model = NULL)
+{
+    requireNamespace("pROC")
+    if (!all(levels(data[, "pred"]) == levels(data[, "obs"]))) 
+        stop("levels of observed and predicted data do not match")
+    rocObject <- try(pROC::roc.default(data$obs, data[, lev[1]]), 
+                     silent = TRUE)
+    rocAUC <- if (class(rocObject)[1] == "try-error"){ 
+        NA
+    }else{rocObject$auc}
+
+    if (!is.factor(data$obs)) 
+        data$obs <- factor(data$obs, levels = lev)
+    Acc <- postResample(data[, "pred"], data[, "obs"])[1]
+
+    out <- c(Acc, rocAUC)
+    names(out) <- c("Accuracy","ROC")
+    out
+}
+```
+
+
+```{r, echo=TRUE, include=FALSE}
+x <- model.matrix(target ~ ., data = my_data[obs, ])[ , -1]  
+y <- my_data$target[obs]
+
+#split the original training set into a train and test sets
+set.seed(1234)
+splitIndex <- createDataPartition(y, p = .75, list = FALSE, times = 1)
+y_train <- y[splitIndex]
+y_test <- y[-splitIndex]
+trainX <- x[splitIndex,]
+testX  <- x[-splitIndex,]
+
+my_data_compl <- my_data[obs, ]
+my_data_train <- my_data_compl[splitIndex, ]
+my_data_test <- my_data_compl[-splitIndex, ]
+model_weights <- ifelse(my_data_train$target == "Good",
+                        (1/table(my_data_train$target)[1]) * 0.5,
+                        (1/table(my_data_train$target)[2]) * 0.5)
+```
+
+
+## Perormance measure
+
+I'll use the AUC as it's the one used in the Kaggle competition. This optimization up to fourth or fifth digit is only for the purpose of competitors ranking since the confidence interval is larger that the last significant digit.
+
+## GLM
+
+Logistic regression is often useful for binary classification but is not able to capture complex dependencies. Let's give it a try
+
+```{r, echo=TRUE, include=TRUE}
+glm_fit <- glm(target ~ ., data = my_data_train, family = "binomial" )
+pander(summary(glm_fit), digits = c(3, 2, 2, 2) )
+```
+
+```{r, echo=TRUE, include=TRUE}
+pred_prob_test <- predict(glm_fit, newdata = data.frame(testX), type = "response")
+auc_test  <- roc(ifelse(y_test=="Good",1,0), as.numeric(pred_prob_test)) # test set
+auc_test$auc
+```
+
+The naive logistic regression is not good compared to the actual results of Kaggle. 
+
+```{r, echo=TRUE, include=FALSE}
+pander(anova(glm_fit, test = "Chisq" ) )
+```
+
+The anova table shows that age and NumberOfTime3059DaysPastDueNotWorse are the most significant features. A regularized glm might returns similar results but with a much more parsimonious model.
+
+## Naive Bayes
+
+
+<!-- ## Weighted GLM-net -->
+
+```{r, echo=TRUE, include=TRUE}
+test_roc <- function(model, data) {
+  roc(data$target,
+      predict(model, data, type = "prob")[, "Bad"])
+}
+```
+
+
+```{r, echo=TRUE, include=TRUE, warning=FALSE}
+set.seed(1234)
+
+registerDoParallel(cl)
+
+ctrl <- trainControl(method = "cv",
+                     number = 5,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary,
+                     allowParallel = TRUE) # control parameter of the cross validation, 5 folds to save time
+
+nb_fit <- caret::train(target ~ .,
+                       data = my_data_train,
+                       method = "nb",
+                       na.action = na.pass,
+                       metric = "ROC",
+                       trControl = ctrl
+                       )
+
+#stopCluster(cluster)
+registerDoSEQ()
+
+nb_fit %>%
+  test_roc(data = my_data_test) %>%
+  auc()
+```
+
+The naive Bayes classifier performs pretty well, but let see if a more flexible method (to capture non-linearities) can do better.
+
+
+
+## Random Forest
+
+A more flexible method, able to capture non-linearities and with over-fitting treatment.
+
+```{r, echo=TRUE, include=TRUE}
+
+registerDoParallel(cl)
+
+# rule of thumbs
+mtryRef <- round(sqrt(ncol(my_data) - 2))
+# grid of the parameter to be tested in CV
+rfGrid <- expand.grid(mtry = c(round(mtryRef / 2), mtryRef, 2 * mtryRef)) 
+# weights since the data set is highly imbalance
+model_weights <- ifelse(my_data_train$target == "Good",
+                        (1/table(dt_target)[1]) * 0.5,
+                        (1/table(dt_target)[2]) * 0.5)
+
+resamp_rf_fit <- train(target ~ .,
+                      data = my_data_train, 
+                       method = "rf",
+                       ntree = 200,
+                       tuneGrid = rfGrid,
+                       metric = "ROC",
+                       trControl = ctrl,
+                       ## sample by strata to take into account unbalanced nature of the data set
+                       strata = factor(my_data_train$target),
+                       ## size of each sample, here they have the same size, so we created balanced sample
+                       sampsize = c(5000, 5000))
+registerDoSEQ()
+
+# The AUC on the test set
+resamp_rf_fit %>%
+  test_roc(data = my_data_test) %>%
+  auc()
+```
+
+
+<!-- ```{r, echo=TRUE, include=TRUE} -->
+<!-- rf_fit <- randomForest(target ~ ., data = my_data[splitIndex, ], na.action = na.roughfix) -->
+<!-- print(rf_fit) -->
+<!-- ``` -->
+
+<!-- ```{r, echo=TRUE, include=TRUE} -->
+<!-- varImpPlot(rf_fit) -->
+<!-- ``` -->
+
+<!-- ## SVM -->
+
+<!-- I tried SVM with radial kernel but it runs too long on my computer, I'll stick to linear SVM -->
+
+<!-- ```{r, echo=TRUE, include=TRUE} -->
+
+<!-- registerDoParallel(cl) -->
+
+<!-- # keep the same seed -->
+<!-- #ctrl$seeds <- resamp_rf_fit$control$seeds -->
+
+<!-- # Build weighted model -->
+
+<!-- weighted_svm_fit <- train(target ~ ., -->
+<!--                       data = my_data_train, -->
+<!--                       method = "svmLinear",   # Radial kernel takes too much time -->
+<!--                       preProc = c("center","scale"),  # Center and scale data -->
+<!--                       #weights = model_weights, -->
+<!--                       metric = "ROC", -->
+<!--                       trControl = ctrl) -->
+<!-- registerDoSEQ() -->
+<!-- # The AUC on the test set -->
+<!-- weighted_svm_fit %>% -->
+<!--   test_roc(data = my_data_test) %>% -->
+<!--   auc() -->
+<!-- ``` -->
+
+
+
+## Weighted GBM
+
+Gradient boost machines to model the residuals of each step, hoping to improve the performance.
+
+```{r, echo=TRUE, include=TRUE}
+
+registerDoParallel(cl)
+
+# keep the same seed
+ctrl$seeds <- resamp_rf_fit$control$seeds
+
+# Build weighted model
+
+weighted_gbm_fit <- train(target ~ .,
+                      data = my_data_train,
+                      method = "gbm",
+                      verbose = FALSE,
+                      weights = model_weights,
+                      metric = "ROC",
+                      trControl = ctrl)
+registerDoSEQ()
+# The AUC on the test set
+weighted_gbm_fit %>%
+  test_roc(data = my_data_test) %>%
+  auc()
+```
+
+
+
+Stop the cluster
+
+```{r}
+stopCluster(cl) 
+```
+
+
+# Compare models performance
+
+We can ask ourself what is the purpose of increasing the AUC of a very small fraction. What I didn't compute is the confidence interval of the AUC
+
+```{r, echo=TRUE, include=TRUE}
+rocobj <- roc(my_data_test$target,
+      predict(weighted_gbm_fit, my_data_test, type = "prob")[, "Bad"])
+ci(rocobj, of="auc")
+```
+
+So it seems that the 95% confidence AUC of the GBM encompasses the best AUC (0.869558) of the Kaggle competition. So an improvement will make sense only if the new AUC lies outside this CI.
+
+
+Anyway, let's compare the models
+
+
+```{r, echo=TRUE, include=TRUE}
+results <- resamples(list(naiveBayse = nb_fit, rdnForest = resamp_rf_fit, gradientBoost = weighted_gbm_fit))
+summary(results)
+```
+
+Given the sampling and the AUC's, the gradient boosting machine is chosen. But other features might be worthy of consideration as the computation time, the interpretation, the scalability (GBM is sequential).
+
+# what I could have done
+
+ - Features engineering: I considered raw data with only a missing value treatment. Feature engineering might improve the performance. Instead of manual features engineering, I might have considered neural networks classifiers.
+ - Another performance measure ? Based on profitability rather than on classification or more consistent with the business explanation (accuracy even if on analytical consideration, not the best)
+ - Tune hyper-parameters/features using a validation set
+ - Consider a trade-off performance/interpretable for business purpose
+ - Some values of the debt ratio are particularly large and give some weird results. Filter them ? Are those large values still correspond to physical person ? 
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+

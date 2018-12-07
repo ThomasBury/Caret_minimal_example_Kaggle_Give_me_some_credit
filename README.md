@@ -83,16 +83,15 @@ attached base packages:
 [1] parallel  grid      stats     graphics  grDevices utils     datasets  methods   base     
 
 other attached packages:
- [1] rmutil_1.1.1        optimx_2018-7.10    nloptr_1.0.4        klaR_0.6-14         stringr_1.3.1       readr_1.1.1        
- [7] expm_0.999-3        doParallel_1.0.11   iterators_1.0.10    tidyr_0.8.1         reshape2_1.4.3      lubridate_1.7.4    
-[13] dplyr_0.7.6         randomForest_4.6-14 pROC_1.12.1         gbm_2.1.4           FactoMineR_1.41     dendextend_1.8.0   
-[19] caret_6.0-80        wesanderson_0.3.6   viridis_0.5.1       viridisLite_0.3.0   VIM_4.7.0           data.table_1.11.4  
-[25] colorspace_1.3-2    scales_1.0.0        RColorBrewer_1.1-2  igraph_1.2.2        gridExtra_2.3       ggthemes_4.0.1     
-[31] factoextra_1.0.5    corrplot_0.84       summarytools_0.8.7  statmod_1.4.30      Rmisc_1.5           plyr_1.8.4         
-[37] quantreg_5.36       SparseM_1.77        pscl_1.5.2          ppcor_1.1           MASS_7.3-50         normtest_1.1       
-[43] moments_0.14        missMDA_1.13        mice_3.3.0          GPfit_1.0-0         glmnet_2.0-16       foreach_1.4.4      
-[49] Matrix_1.2-14       Hmisc_4.1-1         ggplot2_3.0.0       Formula_1.2-3       survival_2.42-3     lattice_0.20-35    
-[55] xtable_1.8-3        pander_0.6.2        knitr_1.20         
+ [1] stringr_1.3.1       rmutil_1.1.1        readr_1.1.1         optimx_2018-7.10    nloptr_1.0.4        expm_0.999-3        doParallel_1.0.11  
+ [8] iterators_1.0.10    tidyr_0.8.1         reshape2_1.4.3      lubridate_1.7.4     dplyr_0.7.6         randomForest_4.6-14 pROC_1.12.1        
+[15] klaR_0.6-14         gbm_2.1.4           FactoMineR_1.41     dendextend_1.8.0    caret_6.0-80        wesanderson_0.3.6   viridis_0.5.1      
+[22] viridisLite_0.3.0   VIM_4.7.0           data.table_1.11.4   colorspace_1.3-2    scales_1.0.0        RColorBrewer_1.1-2  igraph_1.2.2       
+[29] gridExtra_2.3       ggthemes_4.0.1      factoextra_1.0.5    corrplot_0.84       summarytools_0.8.7  statmod_1.4.30      Rmisc_1.5          
+[36] plyr_1.8.4          quantreg_5.36       SparseM_1.77        pscl_1.5.2          ppcor_1.1           MASS_7.3-50         normtest_1.1       
+[43] moments_0.14        missMDA_1.13        mice_3.3.0          Hmisc_4.1-1         ggplot2_3.0.0       Formula_1.2-3       survival_2.42-3    
+[50] lattice_0.20-35     GPfit_1.0-0         glmnet_2.0-16       foreach_1.4.4       Matrix_1.2-14       xtable_1.8-3        pander_0.6.2       
+[57] knitr_1.20         
 
 loaded via a namespace (and not attached):
   [1] questionr_0.6.3      tidyselect_0.2.4     lme4_1.1-18-1        htmlwidgets_1.2      combinat_0.0-8       trimcluster_0.1-2.1 
@@ -106,7 +105,7 @@ loaded via a namespace (and not attached):
  [49] httpuv_1.4.5         tools_3.5.1          lava_1.6.3           Rcpp_0.12.18         base64enc_0.1-3      purrr_0.2.5         
  [55] RCurl_1.95-4.11      ggpubr_0.1.8         rpart_4.1-13         zoo_1.8-3            sfsmisc_1.1-2        haven_1.1.2         
  [61] ggrepel_0.8.0        cluster_2.0.7-1      magrittr_1.5         openxlsx_4.1.0       lmtest_0.9-36        mvtnorm_1.0-8       
- [67] whisker_0.3-2        mitml_0.3-6          matrixStats_0.54.0   evaluate_0.11        mime_0.5             hms_0.4.2           
+ [67] whisker_0.3-2        mitml_0.3-6          matrixStats_0.54.0   hms_0.4.2            mime_0.5             evaluate_0.11       
  [73] rio_0.5.10           mclust_5.4.1         readxl_1.1.0         compiler_3.5.1       tibble_1.4.2         crayon_1.3.4        
  [79] minqa_1.2.4          htmltools_0.3.6      later_0.7.5          magic_1.5-9          fpc_2.1-11.1         boot_1.3-20         
  [85] car_3.0-2            pryr_0.1.4           bindr_0.1.1          pan_1.6              gower_0.1.2          forcats_0.3.0       

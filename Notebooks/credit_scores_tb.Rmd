@@ -1,9 +1,7 @@
 ---
 title: "Caret minimal example - Kaggle Give me some credit"
 author: |
-  | Thomas Bury
-  | Data Office - Advanced Analytics
-  | Allianz
+  | Human Bender
 date: '`r Sys.Date()`'
 output:
   html_document:
@@ -14,7 +12,7 @@ output:
     df_print: paged
 ---
 
-<img src="D:/Users/EUDZ040/R/002_Zoning/notebook/allianz_logo.jpg" style="position:absolute;top:0px;right:0px;" width="175px" align="right" />
+<img src="D:/Users/EUDZ040/Pictures/bender_hex.png" style="position:absolute;top:0px;right:0px;" width="120px" align="right" />
 
 
 
@@ -110,7 +108,7 @@ cl <- makeCluster(round(nbr_cores/2)) # use half of available CPUs
 
 # Introduction
 
-Let's play a bit by predicting the probability that somebody will experience financial distress in the next two years. First, I will evaluate if the problem is "big enough to matter" and if companies offering credit services should invest in a solution and to what extend.
+Let's play a bit by predicting the probability that somebody will experience financial distress in the next two years. First, I will evaluate if the problem is "big enough to matter" and if companies offering credit services should invest in a solution and to what extend (note that this is broadly based on what I found by Googling "give me credit kaggle").
 
 
 Concerning the methodology, the common cycle is 
@@ -197,13 +195,29 @@ dt_target <- my_data[ , 1]
 
 We can try to impute the missing values using the MICE package (Multivariate Imputation by Chained Equations) ** I skip this part because it takes too much time, I'll do a simple imputation replacing NA by median for monthly income grouping by delinquency **.
 
+```{r}
+obs <- complete.cases(dt_feat)
+y <- my_data$target[obs]
+
+#split the original training set into a train and test sets
+set.seed(1234)
+splitIndex <- createDataPartition(y, p = .75, list = FALSE, times = 1)
+```
+
+
+
+
 ```{r, echo = TRUE, include = TRUE}
 # impute monthly income
 # my_data <- my_data[ , `:=`(x5, replace(x5, is.na(x5), as.integer(round(median(x5, na.rm=TRUE)) ) )), by=.(target)]
 
 my_data <- my_data[ , `:=`(x5, replace(x5, is.na(x5), 0L) ), by=.(target)] # avoid weird total amount
 # impute number of dependents
-my_data <- my_data[ , `:=`(x10, replace(x10, is.na(x10), as.integer(round(median(x10, na.rm=TRUE)) ) )), by=.(target)]
+median_train_data_x10 = median(my_data[ , x10], na.rm = T)
+my_data <- my_data[ , `:=`(x10, replace(x10, is.na(x10), as.integer(round(median_train_data_x10) ) )), by=.(target)]
+# rem this avoids data leakage that would result of using the same method on the entire data set
+# so the method is "fitted" on the training set and applied on the test set
+# #my_data <- my_data[ , `:=`(x10, replace(x10, is.na(x10), as.integer(round(median(x10, na.rm=TRUE)) ) )), by=.(target)]
 ```
 
 Is the target values well balanced ?
@@ -365,11 +379,11 @@ mySummary <- function(data, lev = NULL, model = NULL)
 
 ```{r, echo=TRUE, include=FALSE}
 x <- model.matrix(target ~ ., data = my_data[obs, ])[ , -1]  
-y <- my_data$target[obs]
-
-#split the original training set into a train and test sets
-set.seed(1234)
-splitIndex <- createDataPartition(y, p = .75, list = FALSE, times = 1)
+# y <- my_data$target[obs]
+# 
+# #split the original training set into a train and test sets
+# set.seed(1234)
+# splitIndex <- createDataPartition(y, p = .75, list = FALSE, times = 1)
 y_train <- y[splitIndex]
 y_test <- y[-splitIndex]
 trainX <- x[splitIndex,]

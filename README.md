@@ -4,7 +4,7 @@
 
 ## Introduction 
 
-A short note illustrating how the caret package harmonizes the syntax of training models. You may also like the `mlr` package.
+A short note illustrating how the caret package harmonizes the syntax of training models. You may also like the `mlr` package. This notebook is broadly based on existing solutions. The aim is to provide a minimal illustration of caret rather than being exhaustive on the modelling part or even on the caret part.
 
 ## How to reproduce the results ? 
 

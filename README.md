@@ -1,5 +1,4 @@
-![Avatar](sample_pic/bender_hex_mini.png) 
-
+<img src="sample_pic/bender_hex_mini.png" style="position:absolute;top:0px;right:0px;" width="120px" align="right" />
 # Caret minimal example - Kaggle Give me some credit
 
 ## Introduction 
